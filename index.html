@@ -11,8 +11,8 @@
     body { margin: 0; overflow: hidden; }
     #hint {
       position: fixed; top: 10px; left: 10px; right: 10px;
-      background: rgba(0,0,0,0.8); color: #fff; padding: 14px;
-      border-radius: 12px; font-size: 15px; text-align: center; z-index: 999;
+      background: rgba(0,0,0,0.85); color: #fff; padding: 16px;
+      border-radius: 14px; font-size: 16px; text-align: center; z-index: 999;
       pointer-events: none;
     }
   </style>
@@ -20,8 +20,8 @@
 <body>
 
   <div id="hint">
-    Наведи на маркер Hiro → кружки разлетаются<br>
-    Тап по экрану — мощное вращение + качание
+    Наведи на маркер Hiro → три кружки оживут!<br>
+    Тап по экрану — включить безумный танец
   </div>
 
   <a-scene
@@ -38,9 +38,10 @@
       <a-entity id="mugRoot"></a-entity>
     </a-marker>
 
+
     <a-entity camera
-              position="0 1.1 1.8"
-              rotation="-25 0 0">
+              position="0 1.3 2.3"
+              rotation="0 0 0">
     </a-entity>
   </a-scene>
 
@@ -56,12 +57,8 @@
 
       let parts = [];
       let animFrame = null;
-      let rotating = false;
-      let angleY = 0;
-
-      function easeOutCubic(t) {
-        return 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
-      }
+      let dancing = false;  
+      let time = 0;
 
       modelEl.addEventListener('model-loaded', () => {
         const obj = modelEl.getObject3D('mesh');
@@ -72,16 +69,19 @@
           if (node.isMesh) {
             parts.push(node);
             node.userData.origPos = node.position.clone();
-            node.userData.collapsedPos = new THREE.Vector3(0, 0.02, 0);
+
+
+            node.userData.collapsedPos = new THREE.Vector3(0, 0.05, 0);
 
             const i = parts.length - 1;
             const angle = i / 3 * Math.PI * 2;
             const radius = 0.11;
             node.userData.targetPos = new THREE.Vector3(
               Math.cos(angle) * radius,
-              0.02,
+              0.05,  
               Math.sin(angle) * radius
             );
+
             node.position.copy(node.userData.collapsedPos);
           }
         });
@@ -90,7 +90,7 @@
         marker.addEventListener('markerLost', () => startTransition(false));
 
         mugRoot.sceneEl.addEventListener('click', () => {
-          rotating = !rotating;
+          dancing = !dancing;
         });
 
         let animState = null;
@@ -99,27 +99,34 @@
           const now = performance.now();
           animState = {
             start: now,
-            duration: 700,
+            duration: 800,
             from: parts.map(p => p.position.clone()),
             to: parts.map(p => show ? p.userData.targetPos.clone() : p.userData.collapsedPos.clone())
           };
           if (!animFrame) tick(now);
         }
 
-        function tick(time) {
-          if (rotating) {
-            angleY += 0.012;
-            const sway = Math.sin(time * 0.002) * 0.35;  // ← вот это и есть сильное покачивание!
-            mugRoot.object3D.rotation.set(sway, angleY, sway * 0.3);
+        function tick(now) {
+          time = now * 0.001;  
+
+          if (dancing) {
+ 
+            const spinY = time * 0.8;
+            const flipX = Math.sin(time * 1.3) * 0.6;    
+            const swayZ = Math.sin(time * 1.7) * 0.3;   
+            mugRoot.object3D.rotation.set(flipX, spinY, swayZ);
           }
 
           if (animState) {
-            const t = (time - animState.start) / animState.duration;
-            const e = easeOutCubic(t);
-            parts.forEach((p, i) => {
-              p.position.lerpVectors(animState.from[i], animState.to[i], e);
-            });
-            if (t >= 1) animState = null;
+            const t = (now - animState.start) / animState.duration;
+            if (t < 1) {
+              const e = 1 - Math.pow(1 - t, 3);
+              parts.forEach((p, i) => {
+                p.position.lerpVectors(animState.from[i], animState.to[i], e);
+              });
+            } else {
+              animState = null;
+            }
           }
 
           animFrame = requestAnimationFrame(tick);
