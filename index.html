@@ -8,17 +8,11 @@
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
 
   <style>
-    body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+    body { margin: 0; overflow: hidden; }
     #hint {
-      position: fixed;
-      top: 10px; left: 10px; right: 10px;
-      background: rgba(0,0,0,0.75);
-      color: white;
-      padding: 14px;
-      border-radius: 12px;
-      font-size: 15px;
-      text-align: center;
-      z-index: 999;
+      position: fixed; top: 10px; left: 10px; right: 10px;
+      background: rgba(0,0,0,0.8); color: #fff; padding: 14px;
+      border-radius: 12px; font-size: 15px; text-align: center; z-index: 999;
       pointer-events: none;
     }
   </style>
@@ -26,8 +20,8 @@
 <body>
 
   <div id="hint">
-    Наведи на маркер <b>Hiro</b> → кружки разлетаются и начинают жить своей жизнью<br>
-    Тап по экрану — включить/выключить вращение + качание
+    Наведи на маркер Hiro → кружки разлетаются<br>
+    Тап по экрану — мощное вращение + качание
   </div>
 
   <a-scene
@@ -41,20 +35,19 @@
     </a-assets>
 
     <a-marker preset="hiro">
-      <a-entity id="mugRoot" position="0 0 0"></a-entity>
+      <a-entity id="mugRoot"></a-entity>
     </a-marker>
 
-    <!-- УЛУЧШЕННАЯ КАМЕРА: подальше + под углом сверху -->
     <a-entity camera
-              position="0 0.8 2.2"
-              rotation="-18 0 0">
+              position="0 1.1 1.8"
+              rotation="-25 0 0">
     </a-entity>
   </a-scene>
 
   <script>
     (function(){
-      const marker = document.querySelector('a-marker');
       const mugRoot = document.querySelector('#mugRoot');
+      const marker = document.querySelector('a-marker');
 
       const modelEl = document.createElement('a-entity');
       modelEl.setAttribute('gltf-model', '#mugModel');
@@ -64,12 +57,10 @@
       let parts = [];
       let animFrame = null;
       let rotating = false;
-      let rotateAngleY = 0;
-      let rotateAngleX = 0; // новое — качание по X
+      let angleY = 0;
 
       function easeOutCubic(t) {
-        t = Math.min(1, Math.max(0, t));
-        return 1 - Math.pow(1 - t, 3);
+        return 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
       }
 
       modelEl.addEventListener('model-loaded', () => {
@@ -83,8 +74,9 @@
             node.userData.origPos = node.position.clone();
             node.userData.collapsedPos = new THREE.Vector3(0, 0.02, 0);
 
-            const angle = (parts.length - 1) / 3 * Math.PI * 2;
-            const radius = 0.1;
+            const i = parts.length - 1;
+            const angle = i / 3 * Math.PI * 2;
+            const radius = 0.11;
             node.userData.targetPos = new THREE.Vector3(
               Math.cos(angle) * radius,
               0.02,
@@ -97,7 +89,6 @@
         marker.addEventListener('markerFound', () => startTransition(true));
         marker.addEventListener('markerLost', () => startTransition(false));
 
-        // Тап — включаем и выключаем анимацию вращения + качания
         mugRoot.sceneEl.addEventListener('click', () => {
           rotating = !rotating;
         });
@@ -105,7 +96,6 @@
         let animState = null;
 
         function startTransition(show) {
-          if (parts.length === 0) return;
           const now = performance.now();
           animState = {
             start: now,
@@ -118,9 +108,9 @@
 
         function tick(time) {
           if (rotating) {
-            rotateAngleY += 0.008;
-            rotateAngleX = Math.sin(performance.now() * 0.001) * 0.15; // плавное качание
-            mugRoot.object3D.rotation.set(rotateAngleX, rotateAngleY, 0);
+            angleY += 0.012;
+            const sway = Math.sin(time * 0.002) * 0.35;  // ← вот это и есть сильное покачивание!
+            mugRoot.object3D.rotation.set(sway, angleY, sway * 0.3);
           }
 
           if (animState) {
