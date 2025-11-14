@@ -4,20 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Coffee Mug — It's a Bug! (AR.js + Hiro)</title>
-
-  <!-- Рабочие версии 2025 года -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
 
-  
-<style>
+  <style>
     body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
     #hint {
       position: fixed;
       top: 10px; left: 10px; right: 10px;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.75);
       color: white;
-      padding: 12px;
+      padding: 14px;
       border-radius: 12px;
       font-size: 15px;
       text-align: center;
@@ -29,185 +26,118 @@
 <body>
 
   <div id="hint">
-    Наведи камеру на маркер (например, <b>hiro</b>) — модель появится. Тап по экрану — включить/выключить вращение.
-
+    Наведи на маркер <b>Hiro</b> → кружки разлетаются и начинают жить своей жизнью<br>
+    Тап по экрану — включить/выключить вращение + качание
   </div>
 
   <a-scene
     embedded
     vr-mode-ui="enabled: false"
-    renderer="logarithmicDepthBuffer: true;"
-    arjs="sourceType: webcam; debugUIEnabled: false;"
-  >
-    <a-assets>
-      <!-- Помести Coffe-Mug.glb в ту же папку -->
+    renderer="logarithmicDepthBuffer: true"
+    arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best">
+
+    <a-assets timeout="60000">
       <a-asset-item id="mugModel" src="Coffe-Mug.glb"></a-asset-item>
     </a-assets>
 
-    <!-- Маркер: можно заменить preset="hiro" на patternUrl если у тебя кастомный .patt -->
-    <a-marker id="marker" preset="hiro">
-      <!-- корневой контейнер под модель -->
-      <a-entity id="mugRoot" position="0 0 0" rotation="0 0 0"></a-entity>
+    <a-marker preset="hiro">
+      <a-entity id="mugRoot" position="0 0 0"></a-entity>
     </a-marker>
 
-    <a-entity camera></a-entity>
+    <!-- УЛУЧШЕННАЯ КАМЕРА: подальше + под углом сверху -->
+    <a-entity camera
+              position="0 0.8 2.2"
+              rotation="-18 0 0">
+    </a-entity>
   </a-scene>
 
   <script>
-  (function(){
-    const marker = document.querySelector('#marker');
-    const mugRoot = document.querySelector('#mugRoot');
+    (function(){
+      const marker = document.querySelector('a-marker');
+      const mugRoot = document.querySelector('#mugRoot');
 
-    // создаём сущность с моделью
-    const modelEl = document.createElement('a-entity');
-    modelEl.setAttribute('gltf-model', '#mugModel');
-    // подкорректируй scale/rotation/position по необходимости
-    modelEl.setAttribute('scale', '0.6 0.6 0.6');
-    modelEl.setAttribute('position', '0 0 0');
-    modelEl.setAttribute('rotation', '0 0 0');
-    mugRoot.appendChild(modelEl);
+      const modelEl = document.createElement('a-entity');
+      modelEl.setAttribute('gltf-model', '#mugModel');
+      modelEl.setAttribute('scale', '0.6 0.6 0.6');
+      mugRoot.appendChild(modelEl);
 
-    // аниматор — будет плавно перемещать отдельные меши модели
-    let parts = []; // массив THREE.Mesh
-    let animFrame = null;
-    let isShown = false;
-    let rotating = false;
-    let rotateAngle = 0;
+      let parts = [];
+      let animFrame = null;
+      let rotating = false;
+      let rotateAngleY = 0;
+      let rotateAngleX = 0; // новое — качание по X
 
-    // небольшая функция easeOutCubic
-    function easeOutCubic(t){ t = Math.min(1, Math.max(0,t)); return 1 - Math.pow(1 - t, 3); }
-
-    // По загрузке модели пробежим по её мешам и подготовим userData
-    modelEl.addEventListener('model-loaded', (ev) => {
-      // В A-Frame gltf доступен как объект "mesh" у entity
-      const obj = modelEl.getObject3D('mesh') || modelEl.getObject3D('gltf') || modelEl.getObject3D('model');
-      if (!obj) {
-        console.warn('Не удалось получить объект модели (getObject3D returned null).');
-        return;
+      function easeOutCubic(t) {
+        t = Math.min(1, Math.max(0, t));
+        return 1 - Math.pow(1 - t, 3);
       }
 
-      // Сохраним ссылки на все меши (это сработает, даже если в glb — три отдельных кружки)
-      parts = [];
-      obj.traverse(node => {
-        if (node.isMesh) {
-          parts.push(node);
-        }
-      });
+      modelEl.addEventListener('model-loaded', () => {
+        const obj = modelEl.getObject3D('mesh');
+        if (!obj) return console.warn('Модель не загрузилась');
 
-      if (parts.length === 0) {
-        console.warn('В модели не найдено мешей.');
-        return;
-      }
+        parts = [];
+        obj.traverse(node => {
+          if (node.isMesh) {
+            parts.push(node);
+            node.userData.origPos = node.position.clone();
+            node.userData.collapsedPos = new THREE.Vector3(0, 0.02, 0);
 
-      // Запомним оригинальные позиции и зададим начальное "слитое" состояние
-      parts.forEach((p, i) => {
-        p.userData.origPos = p.position.clone();      // место в модели (обычно всё рядом)
-        p.userData.collapsedPos = new THREE.Vector3(0, 0.02, 0); // где будут в начале (слиты)
-        // цель — разнести по кругу вокруг центра маркера
-        const angle = i / parts.length * Math.PI * 2;
-        const radius = 0.08 + 0.03 * (i % 2); // немного вариативности
-        p.userData.targetPos = new THREE.Vector3(Math.cos(angle) * radius, 0.02, Math.sin(angle) * radius);
-        // установим начальное положение — «слитое»
-        p.position.copy(p.userData.collapsedPos);
-      });
+            const angle = (parts.length - 1) / 3 * Math.PI * 2;
+            const radius = 0.1;
+            node.userData.targetPos = new THREE.Vector3(
+              Math.cos(angle) * radius,
+              0.02,
+              Math.sin(angle) * radius
+            );
+            node.position.copy(node.userData.collapsedPos);
+          }
+        });
 
-      // слушаем события маркера
-      marker.addEventListener('markerFound', onMarkerFound);
-      marker.addEventListener('markerLost', onMarkerLost);
+        marker.addEventListener('markerFound', () => startTransition(true));
+        marker.addEventListener('markerLost', () => startTransition(false));
 
-      // тап по сцене переключает вращение
-      mugRoot.sceneEl.addEventListener('click', () => rotating = !rotating);
+        // Тап — включаем и выключаем анимацию вращения + качания
+        mugRoot.sceneEl.addEventListener('click', () => {
+          rotating = !rotating;
+        });
 
-      // рендер-цикл анимации (управляет переходами)
-      let animState = null; // {start, duration, from:[], to:[]}
-      function startTransition(show) {
-        if (!parts.length) return;
-        cancelAnimationFrame(animFrame);
-        const now = performance.now();
-        animState = {
-          start: now,
-          duration: 600,
-          from: parts.map(p => p.position.clone()),
-          to: parts.map(p => (show ? p.userData.targetPos.clone() : p.userData.origPos.clone()))
-        };
-        tick(now);
-      }
+        let animState = null;
 
-      function tick(time) {
-        if (rotating) {
-          rotateAngle += 0.01;
-          mugRoot.object3D.rotation.y = rotateAngle;
-        } else {
-          // если не вращаем, сбросим вращение (чтобы не накапливать)
-          // (не делаем мгновенный сброс — оставим текущее)
+        function startTransition(show) {
+          if (parts.length === 0) return;
+          const now = performance.now();
+          animState = {
+            start: now,
+            duration: 700,
+            from: parts.map(p => p.position.clone()),
+            to: parts.map(p => show ? p.userData.targetPos.clone() : p.userData.collapsedPos.clone())
+          };
+          if (!animFrame) tick(now);
         }
 
-        if (animState) {
-          const t = (time - animState.start) / animState.duration;
-          const e = easeOutCubic(t);
-          parts.forEach((p, i) => {
-            p.position.lerpVectors(animState.from[i], animState.to[i], e);
-          });
-          if (t >= 1) {
-            // закончили анимацию
-            animState = null;
-
-
-
-
-
+        function tick(time) {
+          if (rotating) {
+            rotateAngleY += 0.008;
+            rotateAngleX = Math.sin(performance.now() * 0.001) * 0.15; // плавное качание
+            mugRoot.object3D.rotation.set(rotateAngleX, rotateAngleY, 0);
           }
 
+          if (animState) {
+            const t = (time - animState.start) / animState.duration;
+            const e = easeOutCubic(t);
+            parts.forEach((p, i) => {
+              p.position.lerpVectors(animState.from[i], animState.to[i], e);
+            });
+            if (t >= 1) animState = null;
+          }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+          animFrame = requestAnimationFrame(tick);
         }
+
         animFrame = requestAnimationFrame(tick);
-      }
-
-      // стартуем рендер-цикл
-      animFrame = requestAnimationFrame(tick);
-
-
-
-
-      // обработчики — показываем/скрываем эффект
-      function onMarkerFound() {
-        isShown = true;
-        startTransition(true);
-      }
-      function onMarkerLost() {
-        isShown = false;
-        startTransition(false);
-      }
-    });
-
-    // Освобождение: при выгрузке страницы отменяем анимации
-    window.addEventListener('beforeunload', () => cancelAnimationFrame(animFrame));
-
-  })();
-
-
+      });
+    })();
   </script>
-
 </body>
 </html>
